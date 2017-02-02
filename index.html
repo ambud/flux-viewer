@@ -1,0 +1,258 @@
+<html>
+<head>
+    <title>Storm Flux Viewer</title>
+    <style>
+      body {
+        font-family: helvetica;
+        font-size: 16px;
+      }
+
+      textarea {
+        font-size: 16px;
+      }
+
+      #cy {
+        width: 50%;
+        height: 100%;
+        z-index: 999;
+        float: left;
+      }
+    </style>
+    <script src="http://code.jquery.com/jquery-2.0.3.min.js"></script>
+    <script src="http://cytoscape.github.io/cytoscape.js/api/cytoscape.js-latest/cytoscape.min.js"></script>
+    <script src="https://cdn.rawgit.com/cpettitt/dagre/v0.7.4/dist/dagre.min.js"></script>
+    <script src="https://cdn.rawgit.com/cytoscape/cytoscape.js-dagre/1.1.2/cytoscape-dagre.js"></script>
+
+    <script src="scripts/esprima.js"></script>
+    <script src="scripts/js-yaml.min.js"></script>
+    <script type="text/javascript">
+      function toCytoscapeGraph(doc) {
+        var nodes = [];
+        for(i in doc.bolts) {
+          var e = doc.bolts[i];
+          e.type='bolt';
+          nodes[e.id] = e;
+        }
+        for(i in doc.spouts) {
+          var e = doc.spouts[i];
+          e.type='spout';
+          nodes[e.id] = e;
+        }
+        var nNodes = [];
+        for(i in nodes) {
+          var node = nodes[i];
+          nNodes.push({data:{id:i, class:node.className, type:node.type}});
+        }
+        console.log(nNodes);
+        var edges = [];
+        for(i in doc.streams) {
+          var e = doc.streams[i];
+          edges.push({ data:{source:e.from, target:e.to, label: e.grouping.type}});
+        }
+        console.log(edges);
+        var graph = { nodes:nNodes, edges:edges }
+        return graph
+      }
+
+      function parseAndRender() {
+        var input = document.getElementById('taInput').value;
+        var doc = jsyaml.load(input);
+        var graph = toCytoscapeGraph(doc)
+
+        $(function(){
+
+        var cy = window.cy = cytoscape({
+          container: document.getElementById('cy'),
+
+          boxSelectionEnabled: false,
+          autounselectify: true,
+
+          layout: {
+            name: 'dagre'
+          },
+
+          style: [
+            {
+              selector: 'node',
+              style: {
+                'content': 'data(id)',
+                'text-valign': 'bottom'
+              }
+            },
+
+            {
+              selector: '[type=\'spout\']',
+              style: {
+                'content': 'data(id)',
+                'text-valign': 'bottom',
+                'height': 100,
+                'width': 100,
+                'background-image': './imgs/spout.png'
+              }
+            },
+
+            {
+              selector: '[type=\'bolt\']',
+              style: {
+                'content': 'data(id)',
+                'text-valign': 'bottom',
+                'height': 100,
+                'width': 100,
+                'background-image': './imgs/bolt.png'
+              }
+            },
+
+            {
+              selector: 'edge',
+              style: {
+                'content': 'data(label)',
+                'curve-style': 'haystack',
+                'haystack-radius': 0,
+                'width': 5,
+                'opacity': 0.5,
+                'line-color': 'black'
+              }
+            }
+          ],
+
+          elements: graph});
+        });
+      }
+    </script>
+</head>
+<body>
+
+  <div id="input">
+    <textarea id="taInput" style="width:50%;height:100%;float:left" onchange="parseAndRender()">
+
+# Test ability to wire together shell spouts/bolts
+---
+
+# topology definition
+# name to be used when submitting
+name: "kafka-topology"
+
+# Components
+# Components are analagous to Spring beans. They are meant to be used as constructor,
+# property(setter), and builder arguments.
+#
+# for the time being, components must be declared in the order they are referenced
+components:
+- id: "stringScheme"
+  className: "storm.kafka.StringScheme"
+
+- id: "stringMultiScheme"
+  className: "backtype.storm.spout.SchemeAsMultiScheme"
+  constructorArgs:
+    - ref: "stringScheme"
+
+- id: "zkHosts"
+  className: "storm.kafka.ZkHosts"
+  constructorArgs:
+    - "localhost:2181"
+
+# Alternative kafka config
+#  - id: "kafkaConfig"
+#    className: "storm.kafka.KafkaConfig"
+#    constructorArgs:
+#      # brokerHosts
+#      - ref: "zkHosts"
+#      # topic
+#      - "myKafkaTopic"
+#      # clientId (optional)
+#      - "myKafkaClientId"
+
+- id: "spoutConfig"
+  className: "storm.kafka.SpoutConfig"
+  constructorArgs:
+    # brokerHosts
+    - ref: "zkHosts"
+    # topic
+    - "myKafkaTopic"
+    # zkRoot
+    - "/kafkaSpout"
+    # id
+    - "myId"
+  properties:
+    - name: "forceFromStart"
+      value: true
+    - name: "scheme"
+      ref: "stringMultiScheme"
+
+
+
+# NOTE: We may want to consider some level of spring integration. For example, allowing component references
+# to a spring `ApplicationContext`.
+
+# topology configuration
+# this will be passed to the submitter as a map of config options
+#
+config:
+topology.workers: 1
+# ...
+
+# spout definitions
+spouts:
+- id: "kafka-spout"
+  className: "storm.kafka.KafkaSpout"
+  constructorArgs:
+    - ref: "spoutConfig"
+
+# bolt definitions
+bolts:
+- id: "splitsentence"
+  className: "org.apache.storm.flux.wrappers.bolts.FluxShellBolt"
+  constructorArgs:
+    # command line
+    - ["python", "splitsentence.py"]
+    # output fields
+    - ["word"]
+  parallelism: 1
+  # ...
+
+- id: "log"
+  className: "org.apache.storm.flux.wrappers.bolts.LogInfoBolt"
+  parallelism: 1
+  # ...
+
+- id: "count"
+  className: "backtype.storm.testing.TestWordCounter"
+  parallelism: 1
+  # ...
+
+#stream definitions
+# stream definitions define connections between spouts and bolts.
+# note that such connections can be cyclical
+# custom stream groupings are also supported
+
+streams:
+- name: "kafka --> split" # name isn't used (placeholder for logging, UI, etc.)
+  from: "kafka-spout"
+  to: "splitsentence"
+  grouping:
+    type: SHUFFLE
+
+- name: "split --> count"
+  from: "splitsentence"
+  to: "count"
+  grouping:
+    type: FIELDS
+    args: ["word"]
+
+- name: "count --> log"
+  from: "count"
+  to: "log"
+  grouping:
+    type: SHUFFLE
+    </textarea>
+  </div>
+
+  <div id="cy" >
+  </div>
+
+  <script type="text/javascript">
+    parseAndRender();
+  </script>
+
+</body>
+</html>
