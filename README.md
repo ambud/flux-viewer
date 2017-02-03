@@ -8,6 +8,8 @@ Simply deploy the contents of this folder to a webserver.
 
 Use ```git clone https://github.com/ambud/flux-viewer.git; cd flux-viewer;./start.sh```
 
+Use JSBin http://jsbin.com/gawosuw/edit?html,js,output
+
 # Example
 
 This is how the UI looks
