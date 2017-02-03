@@ -4,7 +4,9 @@ This is a simple browser visualization to edit Storm Flux files YAML and validat
 
 # Installation
 
-Simply deploy the contents of this folder to a webserver
+Simply deploy the contents of this folder to a webserver.
+
+Use ```git clone https://github.com/ambud/flux-viewer.git; cd flux-viewer;./start.sh```
 
 # Example
 
